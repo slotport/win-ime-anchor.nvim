@@ -15,7 +15,7 @@ lazy.nvim
 
 ```
 {
-    "slotport/win-ime-anchor.nvi",
+    "slotport/win-ime-anchor.nvim",
     enabled = vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1,
     lazy = false
 }
