@@ -90,38 +90,43 @@ end
 ---@field polling_interval integer|nil       -- polling interval in milliseconds (default: 200)
 
 local did_setup = false
-local ime_state = nil -- nil = unknown state
+local has_focus = true -- Assume nvim has focus at start up
+local saved_ime_state = nil -- nil = unknown state
 local poll_timer = nil
 
 local function save_ime_state(open)
-	ime_state = open
+	saved_ime_state = open
 end
 
 local anchor_ime_off = function()
-	local open = ime_get_open()
-	if open ~= nil then
+	local current_ime_state = ime_get_open()
+	if current_ime_state ~= nil then
 		-- save the IME status before anchoring IME OFF
-		save_ime_state(open)
+		save_ime_state(current_ime_state)
 	end
-	if open then
+	if current_ime_state then
 		ime_set_open(false)
 	end
 end
 
 local restore_anchored_ime = function()
-	if ime_state == nil then
+	if saved_ime_state == nil then
 		-- DO nothing if no stored status
 		return
 	end
-	if ime_get_open() == ime_state then
+	if ime_get_open() == saved_ime_state then
 		-- Do nothing if the status is already the same
 		return
 	end
 	-- Restore the IME status when entering insert mode
-	ime_set_open(ime_state)
+	ime_set_open(saved_ime_state)
 end
 
 local function poll_ime_state()
+	if has_focus == false then
+		return
+	end
+
 	local mode = vim.api.nvim_get_mode().mode
 
 	if might_ime_on(mode) then
@@ -129,8 +134,8 @@ local function poll_ime_state()
 		-- User might changed IME state intentionally.
 	else
 		-- non-insert-like modes must keep IME off
-		local open = ime_get_open()
-		if open == true then
+		local current_ime_state = ime_get_open()
+		if current_ime_state == true then
 			ime_set_open(false)
 		end
 	end
@@ -154,7 +159,7 @@ function M.setup(opts)
 	vim.api.nvim_create_autocmd("ModeChanged", {
 		group = group,
 		callback = function(ev)
-            -- split `match` into old_mode and new_mode
+			-- split `match` into old_mode and new_mode
 			local old_mode, new_mode = ev.match:match("([^:]+):([^:]+)")
 			if might_ime_on(new_mode) then
 				restore_anchored_ime()
@@ -163,10 +168,27 @@ function M.setup(opts)
 			end
 		end,
 	})
+	vim.api.nvim_create_autocmd("FocusGained", {
+		group = group,
+		callback = function()
+			has_focus = true
+		end,
+	})
+
+	vim.api.nvim_create_autocmd("FocusLost", {
+		group = group,
+		callback = function()
+			has_focus = false
+		end,
+	})
 	if opts.enable_polling then
 		local interval = opts.polling_interval or 200
 
 		poll_timer = vim.loop.new_timer()
+		if poll_timer == nil then
+			return -- something went wrong creating the timer
+		end
+
 		poll_timer:start(interval, interval, vim.schedule_wrap(poll_ime_state))
 
 		vim.api.nvim_create_autocmd("VimLeavePre", {
